@@ -6,6 +6,9 @@ __pycache__/
 # C extensions
 *.so
 
+#Venv
+Biomedicina_venv/
+
 # Distribution / packaging
 .Python
 build/

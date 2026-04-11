@@ -1,20 +1,67 @@
 from dataclasses import dataclass
+from pathlib import Path
 
 import pandas as pd
 from pandas import DataFrame, Series
 from sklearn.model_selection import train_test_split
-from ucimlrepo import fetch_ucirepo
+
+try:
+    from ucimlrepo import fetch_ucirepo
+except ImportError:
+    fetch_ucirepo = None
 
 SEED = 42
+
+WDBC_COLUMNS = [
+    "id",
+    "diagnosis",
+    "mean_radius",
+    "mean_texture",
+    "mean_perimeter",
+    "mean_area",
+    "mean_smoothness",
+    "mean_compactness",
+    "mean_concavity",
+    "mean_concave_points",
+    "mean_symmetry",
+    "mean_fractal_dimension",
+    "radius_error",
+    "texture_error",
+    "perimeter_error",
+    "area_error",
+    "smoothness_error",
+    "compactness_error",
+    "concavity_error",
+    "concave_points_error",
+    "symmetry_error",
+    "fractal_dimension_error",
+    "worst_radius",
+    "worst_texture",
+    "worst_perimeter",
+    "worst_area",
+    "worst_smoothness",
+    "worst_compactness",
+    "worst_concavity",
+    "worst_concave_points",
+    "worst_symmetry",
+    "worst_fractal_dimension",
+]
 
 
 class DataLoader:
     """Load, normalize and split the dataset from the UCI ML Repository."""
 
-    def __init__(self, test_size: float = 0.2, random_state: int = SEED, repo_id: int = 17):
+    def __init__(
+        self,
+        test_size: float = 0.2,
+        random_state: int = SEED,
+        repo_id: int = 17,
+        dataset_path: str | Path | None = None,
+    ):
         self.test_size = test_size
         self.random_state = random_state
         self.repo_id = repo_id
+        self.dataset_path = Path(dataset_path) if dataset_path else Path(__file__).resolve().parent.parent / "data" / "wdbc.data"
         (
             self.real_train_X,
             self.real_test_X,
@@ -33,14 +80,7 @@ class DataLoader:
         splits it into training and testing sets,
         and returns the data along with metadata and variable information.
         """
-        breast_cancer_wisconsin_diagnostic = fetch_ucirepo(id=self.repo_id)
-
-        X = breast_cancer_wisconsin_diagnostic.data.features.copy()
-        y = self._normalize_target(breast_cancer_wisconsin_diagnostic.data.targets)
-
-        metadata = breast_cancer_wisconsin_diagnostic.metadata
-
-        variables = breast_cancer_wisconsin_diagnostic.variables
+        X, y, metadata, variables = self._load_from_local_file()
 
         train_X, test_X, train_y, test_y = train_test_split(
             X,
@@ -58,6 +98,48 @@ class DataLoader:
             metadata,
             variables,
         )
+
+    def _load_from_local_file(self):
+        """Load the bundled WDBC dataset so the practice runs offline from the ZIP submission."""
+        if not self.dataset_path.exists():
+            return self._load_from_ucimlrepo()
+
+        dataset = pd.read_csv(self.dataset_path, header=None, names=WDBC_COLUMNS)
+
+        X = dataset.drop(columns=["id", "diagnosis"]).copy()
+        y = self._normalize_target(dataset[["diagnosis"]])
+
+        metadata = {
+            "name": "Breast Cancer Wisconsin (Diagnostic)",
+            "source": "UCI Machine Learning Repository",
+            "uci_id": self.repo_id,
+            "local_path": str(self.dataset_path),
+            "num_rows": len(dataset),
+            "num_features": X.shape[1],
+        }
+        variables = pd.DataFrame(
+            {
+                "name": X.columns.tolist() + ["diagnosis"],
+                "role": ["feature"] * X.shape[1] + ["target"],
+                "type": ["continuous"] * X.shape[1] + ["categorical"],
+            }
+        )
+        return X, y, metadata, variables
+
+    def _load_from_ucimlrepo(self):
+        """Fallback to the UCI repository only if the local copy is unavailable."""
+        if fetch_ucirepo is None:
+            raise ImportError(
+                "ucimlrepo is not installed and the local dataset copy was not found."
+            )
+
+        breast_cancer_wisconsin_diagnostic = fetch_ucirepo(id=self.repo_id)
+
+        X = breast_cancer_wisconsin_diagnostic.data.features.copy()
+        y = self._normalize_target(breast_cancer_wisconsin_diagnostic.data.targets)
+        metadata = breast_cancer_wisconsin_diagnostic.metadata
+        variables = breast_cancer_wisconsin_diagnostic.variables
+        return X, y, metadata, variables
 
     def _normalize_target(self, target_frame: DataFrame) -> Series:
         """Normalize the target column into a binary series usable by sklearn and SDV."""
